@@ -1,0 +1,30 @@
+# Packer
+*.pkr.hcl.lock.json
+packer_cache/
+output-*/
+
+# Sensitive — never commit these
+*.pkrvars.hcl.local
+secrets.auto.pkrvars.hcl
+.env
+.env.*
+
+# Rendered cloud-init files (generated at deploy time)
+cloud-init/rendered/
+*.rendered.yaml
+
+# Build artefacts
+*.ova
+*.ovf
+*.vmdk
+*.iso
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo

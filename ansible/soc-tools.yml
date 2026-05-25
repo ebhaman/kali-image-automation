@@ -1,0 +1,171 @@
+---
+# ansible/soc-tools.yml
+# SOC toolset Ansible playbook — runs inside the VM during custom variant build.
+# Defines the full set of tools installed in the kali-soc-custom template.
+# Add, remove, or group tools here as the SOC toolset evolves.
+
+- name: Install SOC toolset
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+
+  vars:
+    # Set to true to install heavy tools (metasploit, bloodhound)
+    # Set to false for a lighter build during testing
+    install_heavy_tools: true
+
+  tasks:
+
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    # ── Network scanning ───────────────────────────────────────────────────────
+    - name: Install network scanning tools
+      ansible.builtin.apt:
+        name:
+          - nmap
+          - masscan
+          - ncat
+          - netcat-traditional
+          - socat
+          - tcpdump
+          - tshark
+          - wireshark-common
+          - dnsutils
+          - whois
+          - traceroute
+          - net-tools
+          - arp-scan
+          - netdiscover
+        state: present
+
+    # ── Web application testing ────────────────────────────────────────────────
+    - name: Install web application testing tools
+      ansible.builtin.apt:
+        name:
+          - burpsuite
+          - zaproxy
+          - nikto
+          - dirb
+          - gobuster
+          - wfuzz
+          - sqlmap
+          - curl
+          - wget
+          - sslscan
+          - testssl.sh
+          - whatweb
+        state: present
+
+    # ── Password and credential tools ──────────────────────────────────────────
+    - name: Install password tools
+      ansible.builtin.apt:
+        name:
+          - hydra
+          - john
+          - hashcat
+          - crunch
+          - wordlists
+        state: present
+
+    # ── SMB and AD enumeration ─────────────────────────────────────────────────
+    - name: Install SMB and AD tools
+      ansible.builtin.apt:
+        name:
+          - enum4linux
+          - smbclient
+          - crackmapexec
+          - impacket-scripts
+          - python3-impacket
+          - responder
+          - ldap-utils
+        state: present
+
+    # ── Exploitation framework (heavy) ─────────────────────────────────────────
+    - name: Install Metasploit Framework
+      ansible.builtin.apt:
+        name: metasploit-framework
+        state: present
+      when: install_heavy_tools | bool
+
+    # ── Post-exploitation and AD attack tools ──────────────────────────────────
+    - name: Install BloodHound and Neo4j
+      ansible.builtin.apt:
+        name:
+          - bloodhound
+          - neo4j
+        state: present
+      when: install_heavy_tools | bool
+
+    # ── Forensics and OSINT ────────────────────────────────────────────────────
+    - name: Install forensics tools
+      ansible.builtin.apt:
+        name:
+          - steghide
+          - exiftool
+          - binwalk
+          - foremost
+          - volatility3
+          - autopsy
+          - bulk-extractor
+        state: present
+
+    # ── Development and scripting ──────────────────────────────────────────────
+    - name: Install development tools
+      ansible.builtin.apt:
+        name:
+          - git
+          - python3
+          - python3-pip
+          - python3-venv
+          - golang-go
+          - ruby
+          - jq
+          - tmux
+          - vim
+        state: present
+
+    # ── Python security libraries ──────────────────────────────────────────────
+    - name: Install Python security libraries
+      ansible.builtin.pip:
+        name:
+          - pwntools
+          - scapy
+          - requests
+          - paramiko
+          - ldap3
+        state: present
+        executable: pip3
+      ignore_errors: true    # non-fatal — pip packages may fail on newer Python
+
+    # ── Verify key tools are executable ───────────────────────────────────────
+    - name: Verify nmap is installed
+      ansible.builtin.command: nmap --version
+      register: nmap_check
+      changed_when: false
+
+    - name: Verify gobuster is installed
+      ansible.builtin.command: gobuster version
+      register: gobuster_check
+      changed_when: false
+      failed_when: false     # gobuster version returns non-zero on some versions
+
+    - name: Print tool verification
+      ansible.builtin.debug:
+        msg:
+          - "nmap: {{ nmap_check.stdout_lines[0] }}"
+          - "gobuster: {{ gobuster_check.stdout | default('installed') }}"
+
+    # ── Cleanup ────────────────────────────────────────────────────────────────
+    - name: Remove unused packages
+      ansible.builtin.apt:
+        autoremove: true
+        autoclean: true
+
+    - name: Clear apt cache
+      ansible.builtin.file:
+        path: /var/lib/apt/lists
+        state: absent

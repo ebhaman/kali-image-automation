@@ -1,0 +1,308 @@
+name: Kali VM weekly build
+
+on:
+  schedule:
+    - cron: '0 2 * * 1'          # Monday 02:00 UTC
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: 'Which variant to build'
+        required: false
+        default: 'both'
+        type: choice
+        options: [both, basic, custom]
+
+env:
+  GOVC_URL:      ${{ vars.VCENTER_HOST }}
+  GOVC_USERNAME: ${{ vars.VCENTER_USER }}
+  GOVC_PASSWORD: ${{ secrets.VCENTER_PASS }}
+  GOVC_INSECURE: 'false'
+
+jobs:
+
+  # ── Job 1: validate ──────────────────────────────────────────────────────────
+  validate:
+    name: Validate Packer HCL
+    runs-on: [self-hosted, packer]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Packer plugins
+        run: packer init .
+
+      - name: Validate basic HCL
+        run: |
+          packer validate \
+            -var-file=variables/basic.pkrvars.hcl \
+            kali-basic.pkr.hcl
+
+      - name: Validate custom HCL
+        run: |
+          packer validate \
+            -var-file=variables/custom.pkrvars.hcl \
+            kali-custom.pkr.hcl
+
+  # ── Job 2: verify ISO ────────────────────────────────────────────────────────
+  verify-iso:
+    name: Download and verify Kali ISO
+    runs-on: [self-hosted, packer]
+    needs: validate
+    outputs:
+      iso_filename: ${{ steps.find-iso.outputs.iso }}
+      iso_sha256:   ${{ steps.verify.outputs.sha256 }}
+    steps:
+      - name: Find latest ISO
+        id: find-iso
+        run: |
+          BASE="https://cdimage.kali.org/current"
+          ISO=$(curl -sf "$BASE/" \
+            | grep -o 'kali-linux-[0-9.]*-installer-amd64\.iso' \
+            | sort -V | tail -1)
+          echo "iso=$ISO" >> "$GITHUB_OUTPUT"
+          echo "Found ISO: $ISO"
+
+      - name: Download ISO (skip if cached)
+        run: |
+          BASE="https://cdimage.kali.org/current"
+          ISO="${{ steps.find-iso.outputs.iso }}"
+          if [ ! -f "/tmp/$ISO" ]; then
+            echo "Downloading $ISO..."
+            wget -q "$BASE/$ISO" -O "/tmp/$ISO"
+          else
+            echo "Using cached ISO: $ISO"
+          fi
+          wget -q "$BASE/SHA256SUMS"     -O /tmp/SHA256SUMS
+          wget -q "$BASE/SHA256SUMS.gpg" -O /tmp/SHA256SUMS.gpg
+
+      - name: Import Kali PGP key and verify signature
+        run: |
+          gpg --keyserver hkps://keys.openpgp.org \
+            --recv-keys 44C6513A8E4FB3D30875F758ED444FF07D8D0BF6
+          gpg --verify /tmp/SHA256SUMS.gpg /tmp/SHA256SUMS
+
+      - name: Verify ISO checksum
+        id: verify
+        run: |
+          ISO="${{ steps.find-iso.outputs.iso }}"
+          cd /tmp && grep "$ISO" SHA256SUMS | sha256sum --check
+          SHA=$(sha256sum /tmp/$ISO | cut -d' ' -f1)
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          echo "ISO verified: $SHA"
+
+  # ── Job 3a: build basic ──────────────────────────────────────────────────────
+  build-basic:
+    name: Build basic variant
+    runs-on: [self-hosted, packer]
+    needs: verify-iso
+    if: ${{ github.event.inputs.variant != 'custom' }}
+    timeout-minutes: 90
+    outputs:
+      template_name: ${{ steps.build.outputs.template }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Kali basic template
+        id: build
+        env:
+          BUILD_SSH_PASS: ${{ secrets.BUILD_SSH_PASS }}
+        run: |
+          ISO="${{ needs.verify-iso.outputs.iso_filename }}"
+          SHA="${{ needs.verify-iso.outputs.iso_sha256 }}"
+          TEMPLATE="kali-basic-$(date +%G-W%V)"
+
+          packer build \
+            -var "kali_iso_url=file:///tmp/$ISO" \
+            -var "kali_iso_sha256=$SHA" \
+            -var "build_ssh_pass=$BUILD_SSH_PASS" \
+            -var "vcenter_host=${{ vars.VCENTER_HOST }}" \
+            -var "vcenter_user=${{ vars.VCENTER_USER }}" \
+            -var "vcenter_pass=${{ secrets.VCENTER_PASS }}" \
+            -var "content_library=${{ vars.CONTENT_LIBRARY }}" \
+            -var "datastore=${{ vars.DATASTORE }}" \
+            -var "cluster=${{ vars.CLUSTER }}" \
+            -var "datacenter=${{ vars.DATACENTER }}" \
+            -var "build_network=${{ vars.BUILD_NETWORK }}" \
+            -var-file=variables/basic.pkrvars.hcl \
+            kali-basic.pkr.hcl
+
+          echo "template=$TEMPLATE" >> "$GITHUB_OUTPUT"
+          echo "Built template: $TEMPLATE"
+
+  # ── Job 3b: build custom (parallel with basic) ───────────────────────────────
+  build-custom:
+    name: Build custom SOC variant
+    runs-on: [self-hosted, packer]
+    needs: verify-iso
+    if: ${{ github.event.inputs.variant != 'basic' }}
+    timeout-minutes: 120
+    continue-on-error: true          # custom failing does not block basic promotion
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Kali custom template
+        env:
+          BUILD_SSH_PASS: ${{ secrets.BUILD_SSH_PASS }}
+        run: |
+          ISO="${{ needs.verify-iso.outputs.iso_filename }}"
+          SHA="${{ needs.verify-iso.outputs.iso_sha256 }}"
+
+          packer build \
+            -var "kali_iso_url=file:///tmp/$ISO" \
+            -var "kali_iso_sha256=$SHA" \
+            -var "build_ssh_pass=$BUILD_SSH_PASS" \
+            -var "vcenter_host=${{ vars.VCENTER_HOST }}" \
+            -var "vcenter_user=${{ vars.VCENTER_USER }}" \
+            -var "vcenter_pass=${{ secrets.VCENTER_PASS }}" \
+            -var "content_library=${{ vars.CONTENT_LIBRARY }}" \
+            -var "datastore=${{ vars.DATASTORE }}" \
+            -var "cluster=${{ vars.CLUSTER }}" \
+            -var "datacenter=${{ vars.DATACENTER }}" \
+            -var "build_network=${{ vars.BUILD_NETWORK }}" \
+            -var-file=variables/custom.pkrvars.hcl \
+            kali-custom.pkr.hcl
+
+  # ── Job 4: smoke test ────────────────────────────────────────────────────────
+  smoke-test:
+    name: Smoke test basic template
+    runs-on: [self-hosted, packer]
+    needs: build-basic
+    if: ${{ github.event.inputs.variant != 'custom' }}
+    steps:
+      - name: Write SSH key to file
+        run: |
+          echo "${{ secrets.SMOKE_SSH_KEY }}" > /tmp/smoke_key
+          chmod 600 /tmp/smoke_key
+
+      - name: Clone template to smoke network
+        run: |
+          govc vm.clone \
+            -vm="${{ needs.build-basic.outputs.template_name }}" \
+            -folder="${{ vars.SMOKE_FOLDER }}" \
+            -host="${{ vars.SMOKE_HOST }}" \
+            -datastore="${{ vars.DATASTORE }}" \
+            -name="smoke-basic-${{ github.run_id }}" \
+            -on=true
+
+      - name: Wait for SSH (up to 5 minutes)
+        run: |
+          echo "Waiting for VM to boot and SSH to become available..."
+          for i in $(seq 1 30); do
+            sleep 10
+            if ssh \
+              -o StrictHostKeyChecking=no \
+              -o ConnectTimeout=5 \
+              -i /tmp/smoke_key \
+              kali@${{ vars.SMOKE_IP }} \
+              "echo SSH_OK" 2>/dev/null | grep -q SSH_OK; then
+              echo "SSH available after $((i*10))s"
+              break
+            fi
+            echo "Attempt $i/30 — retrying in 10s..."
+            [ $i -eq 30 ] && echo "ERROR: SSH timeout after 300s" && exit 1
+          done
+
+      - name: Run smoke test checks
+        run: |
+          ssh \
+            -o StrictHostKeyChecking=no \
+            -i /tmp/smoke_key \
+            kali@${{ vars.SMOKE_IP }} bash << 'EOF'
+            set -e
+            echo "--- Checking open-vm-tools ---"
+            systemctl is-active open-vm-tools
+
+            echo "--- Checking perl ---"
+            perl --version | head -1
+
+            echo "--- Checking cloud-init ---"
+            cloud-init --version
+
+            echo "--- Checking rsyslog ---"
+            systemctl is-active rsyslog
+
+            echo "--- Checking SSH service ---"
+            systemctl is-active ssh
+
+            echo "--- All checks passed ---"
+          EOF
+
+      - name: Destroy smoke VM (always runs)
+        if: always()
+        run: |
+          echo "Cleaning up smoke VM..."
+          govc vm.power -off "smoke-basic-${{ github.run_id }}" 2>/dev/null || true
+          sleep 5
+          govc vm.destroy "smoke-basic-${{ github.run_id }}" 2>/dev/null || true
+          rm -f /tmp/smoke_key
+          echo "Smoke VM destroyed"
+
+  # ── Job 5: promote ───────────────────────────────────────────────────────────
+  promote:
+    name: Promote template to latest
+    runs-on: [self-hosted, packer]
+    needs: smoke-test
+    if: ${{ github.event.inputs.variant != 'custom' }}
+    environment: production          # add required reviewer in GitHub Settings → Environments
+    steps:
+      - name: Rotate old templates (keep last 2)
+        run: |
+          TEMPLATE="${{ needs.build-basic.outputs.template_name }}"
+          echo "Promoting: $TEMPLATE"
+
+          # List all kali-basic items, sorted oldest first, delete all but last 2
+          ITEMS=$(govc library.ls "${{ vars.CONTENT_LIBRARY }}" | grep "kali-basic" | sort)
+          COUNT=$(echo "$ITEMS" | wc -l)
+
+          if [ "$COUNT" -gt 2 ]; then
+            TO_DELETE=$(echo "$ITEMS" | head -n $((COUNT - 2)))
+            echo "Rotating out:"
+            echo "$TO_DELETE"
+            echo "$TO_DELETE" | while read item; do
+              govc library.rm "${{ vars.CONTENT_LIBRARY }}/$item"
+            done
+          else
+            echo "Only $COUNT builds in library — nothing to rotate yet"
+          fi
+
+          echo "Current templates in library:"
+          govc library.ls "${{ vars.CONTENT_LIBRARY }}" | grep "kali"
+
+      - name: Write build summary
+        run: |
+          TEMPLATE="${{ needs.build-basic.outputs.template_name }}"
+          {
+            echo "### Kali build complete"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Template | \`$TEMPLATE\` |"
+            echo "| Week | \`$(date +%G-W%V)\` |"
+            echo "| ISO | \`${{ needs.verify-iso.outputs.iso_filename }}\` |"
+            echo "| SHA256 | \`${{ needs.verify-iso.outputs.iso_sha256 }}\` |"
+            echo "| Run | [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── Job 6: notify on failure ─────────────────────────────────────────────────
+  notify-failure:
+    name: Alert on pipeline failure
+    runs-on: [self-hosted, packer]
+    needs: [validate, verify-iso, build-basic, smoke-test, promote]
+    if: failure()
+    steps:
+      - name: Send Slack alert
+        if: ${{ vars.SLACK_WEBHOOK != '' }}
+        run: |
+          curl -s -X POST "${{ secrets.SLACK_WEBHOOK }}" \
+            -H 'Content-type: application/json' \
+            -d "{
+              \"text\": \":x: *Kali build FAILED*\",
+              \"attachments\": [{
+                \"color\": \"danger\",
+                \"fields\": [
+                  {\"title\": \"Repository\", \"value\": \"${{ github.repository }}\", \"short\": true},
+                  {\"title\": \"Run\", \"value\": \"#${{ github.run_id }}\", \"short\": true},
+                  {\"title\": \"Triggered by\", \"value\": \"${{ github.event_name }}\", \"short\": true},
+                  {\"title\": \"Logs\", \"value\": \"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\", \"short\": false}
+                ]
+              }]
+            }"

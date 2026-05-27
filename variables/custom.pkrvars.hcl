@@ -7,4 +7,4 @@ vm_name_prefix  = "kali-soc-custom"
 cpu_count       = 4
 ram_mb          = 8192
 disk_gb         = 80
-extra_scripts   = ["scripts/02-soc-tools.sh"]
+#extra_scripts   = ["scripts/02-soc-tools.sh"]

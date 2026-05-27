@@ -83,9 +83,3 @@ variable "disk_gb" {
   default     = 40
 }
 
-# ── Extra provisioner scripts (custom variant only) ───────────────────────────
-variable "extra_scripts" {
-  description = "Additional shell scripts to run after 01-base.sh (custom variant)"
-  type        = list(string)
-  default     = []
-}

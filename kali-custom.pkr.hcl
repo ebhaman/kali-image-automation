@@ -1,6 +1,5 @@
 locals {
-  custom_template_name = "${var.vm_name_prefix}-${formatdate("YYYY", timestamp())}-W${formatdate("WW", timestamp())}"
-  custom_build_scripts = concat(["scripts/01-base.sh"], var.extra_scripts, ["scripts/99-cleanup.sh"])
+  custom_template_name = "kali-soc-custom-${formatdate("YYYY", timestamp())}-W${formatdate("WW", timestamp())}"
 }
 
 source "vsphere-iso" "kali-custom" {
@@ -16,7 +15,7 @@ source "vsphere-iso" "kali-custom" {
 
   vm_name       = local.custom_template_name
   guest_os_type = "debian12_64Guest"
-  notes         = "Built by Packer on ${formatdate("YYYY-MM-DD", timestamp())} — kali-soc-packer pipeline (custom SOC variant)"
+  notes         = "Built by Packer on ${formatdate("YYYY-MM-DD", timestamp())} — kali-soc-custom"
 
   CPUs                 = var.cpu_count
   RAM                  = var.ram_mb
@@ -41,8 +40,7 @@ source "vsphere-iso" "kali-custom" {
   boot_command = [
     "<esc><wait>",
     "auto url=http://{{ .HTTPIP }}:{{ .HTTPPort }}/preseed.cfg ",
-    "hostname=kali-template ",
-    "domain=local ",
+    "hostname=kali-template domain=local ",
     "<enter>"
   ]
 
@@ -70,17 +68,19 @@ build {
   name    = "kali-custom"
   sources = ["source.vsphere-iso.kali-custom"]
 
+  # Step 1: base packages
   provisioner "shell" {
     script          = "scripts/01-base.sh"
     execute_command = "echo '${var.build_ssh_pass}' | sudo -S bash {{.Path}}"
   }
 
-  # SOC toolset via Ansible
+  # Step 2: SOC toolset via Ansible
   provisioner "shell" {
     script          = "scripts/02-soc-tools.sh"
     execute_command = "echo '${var.build_ssh_pass}' | sudo -S bash {{.Path}}"
   }
 
+  # Step 3: cloud-init datasource config
   provisioner "file" {
     source      = "cloud-init/99-vmware.cfg"
     destination = "/tmp/99-vmware.cfg"
@@ -88,12 +88,14 @@ build {
 
   provisioner "shell" {
     inline = [
-      "echo '${var.build_ssh_pass}' | sudo -S cp /tmp/99-vmware.cfg /etc/cloud/cloud.cfg.d/99-vmware.cfg",
+      "sudo cp /tmp/99-vmware.cfg /etc/cloud/cloud.cfg.d/99-vmware.cfg",
       "sudo chown root:root /etc/cloud/cloud.cfg.d/99-vmware.cfg",
       "sudo chmod 644 /etc/cloud/cloud.cfg.d/99-vmware.cfg"
     ]
+    execute_command = "echo '${var.build_ssh_pass}' | sudo -S bash -c '{{.Command}}'"
   }
 
+  # Step 4: seal template
   provisioner "shell" {
     script          = "scripts/99-cleanup.sh"
     execute_command = "echo '${var.build_ssh_pass}' | sudo -S bash {{.Path}}"

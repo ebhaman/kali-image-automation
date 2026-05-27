@@ -1,4 +1,4 @@
-name: Kali VM weekly build
+name: Kali VM weekly built
 
 on:
   schedule:

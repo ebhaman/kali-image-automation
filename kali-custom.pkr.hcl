@@ -1,5 +1,5 @@
 locals {
-  custom_template_name = "kali-soc-custom-${formatdate("YYYY", timestamp())}-W${formatdate("WW", timestamp())}"
+  custom_template_name = "kali-soc-custom-${formatdate("YYYY", timestamp())}"
 }
 
 source "vsphere-iso" "kali-custom" {

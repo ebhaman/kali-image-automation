@@ -1,5 +1,5 @@
 locals {
-  template_name = "kali-basic-${formatdate("YYYY", timestamp())}-W${formatdate("WW", timestamp())}"
+  template_name = "kali-basic-${formatdate("YYYY", timestamp())}"
 }
 
 # ── Source: vsphere-iso ───────────────────────────────────────────────────────

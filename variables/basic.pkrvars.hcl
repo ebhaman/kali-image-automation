@@ -8,3 +8,4 @@ cpu_count       = 2
 ram_mb          = 4096
 disk_gb         = 40
 #extra_scripts   = []
+vcenter_host= localhost

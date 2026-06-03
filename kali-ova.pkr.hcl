@@ -1,12 +1,3 @@
-packer {
-  required_plugins {
-    vsphere = {
-      version = ">= 1.2.0"
-      source  = "github.com/hashicorp/vsphere"
-    }
-  }
-}
-
 locals {
   ova_template_name = "kali-ova-${formatdate("YYYY-MM-DD", timestamp())}-${formatdate("hhmm", timestamp())}"
 }

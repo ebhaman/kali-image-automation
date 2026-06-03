@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build-ova.sh — Build and package Kali OVA template for vSphere
+# build-ova.sh — Build Kali OVA template and export to vSphere content library
 
 set -euo pipefail
 
@@ -12,8 +12,6 @@ NC='\033[0m' # No Color
 # Configuration
 PACKER_FILE="kali-ova.pkr.hcl"
 PKRVARS_FILE="kali-ova.pkrvars.hcl"
-OUTPUT_DIR="output-ova"
-TIMESTAMP=$(date +%Y-%m-%d_%H%M%S)
 
 # ────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -28,60 +26,71 @@ check_command() {
 }
 
 # ────────────────────────────────────────────────────────────────────────────
-# Main
+# Prerequisites Check
 # ────────────────────────────────────────────────────────────────────────────
 
-main() {
-  log "Starting Kali OVA build..."
+log "Checking prerequisites..."
+check_command packer
 
-  # Verify prerequisites
-  check_command packer
-  check_command ssh
+[ -f "$PACKER_FILE" ] || error "Missing: $PACKER_FILE"
+[ -f "$PKRVARS_FILE" ] || error "Missing: $PKRVARS_FILE"
 
-  [ -f "$PACKER_FILE" ] || error "Missing: $PACKER_FILE"
-  [ -f "$PKRVARS_FILE" ] || error "Missing: $PKRVARS_FILE"
+# Check SSH credentials
+if [ -z "${PKR_VAR_build_ssh_pass:-}" ]; then
+  error "PKR_VAR_build_ssh_pass not set. Export: PKR_VAR_build_ssh_pass='password'"
+fi
 
-  # Check credentials are set
-  if [ -z "${PKR_VAR_build_ssh_pass:-}" ]; then
-    warn "PKR_VAR_build_ssh_pass not set. You will be prompted during Packer build."
-    warn "To avoid this, set: export PKR_VAR_build_ssh_pass='your-password'"
-  fi
-
-  # Check ISO is configured
-  if ! grep -q 'kali_iso_url' "$PKRVARS_FILE" || grep 'kali_iso_url.*#' "$PKRVARS_FILE"; then
-    error "Configure kali_iso_url in $PKRVARS_FILE first!"
-  fi
-
-  # Validate Packer HCL
-  log "Validating Packer configuration..."
-  packer validate \
-    -var-file="$PKRVARS_FILE" \
-    "$PACKER_FILE" \
-    || error "Packer validation failed"
-
-  # Build
-  log "Building OVA template (this may take 20-40 minutes)..."
-  packer build \
-    -var-file="$PKRVARS_FILE" \
-    "$PACKER_FILE" \
-    || error "Packer build failed"
-
-  # Verify output
-  if [ -d "$OUTPUT_DIR" ] && [ -n "$(ls -A "$OUTPUT_DIR"/*.ova 2>/dev/null)" ]; then
-    OVA_FILE=$(ls -t "$OUTPUT_DIR"/*.ova 2>/dev/null | head -1)
-    OVA_SIZE=$(du -h "$OVA_FILE" | cut -f1)
-    log "✓ OVA created successfully: $OVA_FILE ($OVA_SIZE)"
-    log "✓ Ready to upload to vSphere content library"
-    log ""
-    log "Next steps:"
-    log "  1. Read OVA-UPLOAD-GUIDE.md for upload instructions"
-    log "  2. Upload to content library via UI or ovftool"
-    log "  3. Test clone deployment"
-  else
-    error "OVA file not found in $OUTPUT_DIR"
-  fi
-}
+# Warn if vCenter creds missing
+if [ -z "${PKR_VAR_vcenter_user:-}" ] || [ -z "${PKR_VAR_vcenter_pass:-}" ]; then
+  warn "vCenter credentials not set as environment variables"
+  warn "Export them or configure in .pkrvars file:"
+  warn "  export PKR_VAR_vcenter_user='user@vsphere.local'"
+  warn "  export PKR_VAR_vcenter_pass='password'"
+fi
 
 # ────────────────────────────────────────────────────────────────────────────
+# Validate Configuration
+# ────────────────────────────────────────────────────────────────────────────
 
-main "$@"
+log "Validating Packer configuration..."
+packer validate \
+  -var-file="$PKRVARS_FILE" \
+  "$PACKER_FILE" \
+  || error "Packer validation failed"
+
+log "✓ Configuration valid"
+
+# ────────────────────────────────────────────────────────────────────────────
+# Build
+# ────────────────────────────────────────────────────────────────────────────
+
+log ""
+log "Building Kali OVA template..."
+log "  - Building VM in vSphere"
+log "  - Running provisioning scripts"
+log "  - Exporting as OVF/OVA to content library"
+log "  - Cleaning up build VM"
+log ""
+log "This may take 20-40 minutes depending on network and system performance"
+log ""
+
+packer build \
+  -var-file="$PKRVARS_FILE" \
+  "$PACKER_FILE" \
+  || error "Packer build failed"
+
+# ────────────────────────────────────────────────────────────────────────────
+# Success
+# ────────────────────────────────────────────────────────────────────────────
+
+log ""
+log "╔════════════════════════════════════════════════════════════╗"
+log "║ ✓ Build completed successfully!                           ║"
+log "║                                                            ║"
+log "║ Template is now available in your vSphere content library  ║"
+log "║                                                            ║"
+log "║ Next steps:                                                ║"
+log "║  1. Check vSphere UI → Content Libraries                   ║"
+log "║  2. Right-click template → New VM from This Template       ║"
+log "║  3. Deploy and test                                        ║"
+log "╚════════════════════════════════════════════════════════════╝"

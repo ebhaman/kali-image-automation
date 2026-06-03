@@ -1,4 +1,4 @@
-# build-ova.ps1 — Build and package Kali OVA template for vSphere
+# build-ova.ps1 — Build Kali OVA template and export to vSphere content library
 # Run: .\build-ova.ps1
 
 param(
@@ -48,9 +48,19 @@ if (-not (Test-Path $VarsFile)) {
 
 # Check credentials
 $sshPass = [Environment]::GetEnvironmentVariable("PKR_VAR_build_ssh_pass")
+$vcUser = [Environment]::GetEnvironmentVariable("PKR_VAR_vcenter_user")
+$vcPass = [Environment]::GetEnvironmentVariable("PKR_VAR_vcenter_pass")
+
 if (-not $sshPass) {
-    Write-Warn "PKR_VAR_build_ssh_pass environment variable not set"
-    Write-Warn "Set it with: `$env:PKR_VAR_build_ssh_pass='your-password'"
+    Write-Err "PKR_VAR_build_ssh_pass not set. Set with: `$env:PKR_VAR_build_ssh_pass='password'"
+}
+
+if (-not $vcUser -or -not $vcPass) {
+    Write-Warn "vCenter credentials not set as environment variables"
+    Write-Warn "You can set them with:"
+    Write-Warn "  `$env:PKR_VAR_vcenter_user='user@vsphere.local'"
+    Write-Warn "  `$env:PKR_VAR_vcenter_pass='password'"
+    Write-Warn "Or configure them in your .pkrvars file"
 }
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -67,32 +77,31 @@ if (-not $SkipValidation) {
 # Build
 # ────────────────────────────────────────────────────────────────────────────
 
-Write-Info "Building OVA template (this may take 20-40 minutes)..."
-Write-Info "You can monitor progress in the VMware hypervisor UI"
+Write-Info ""
+Write-Info "Building Kali OVA template..."
+Write-Info "  - Building VM in vSphere"
+Write-Info "  - Running provisioning scripts"
+Write-Info "  - Exporting as OVF/OVA to content library"
+Write-Info "  - Cleaning up build VM"
+Write-Info ""
+Write-Info "This may take 20-40 minutes depending on network and system performance"
+Write-Info ""
 
 $buildCmd = "packer build -var-file='$VarsFile' $PackerFile"
 $buildResult = Invoke-Cmd $buildCmd
 
 if ($LASTEXITCODE -eq 0) {
     Write-Info ""
-    Write-Info "✓ Build completed successfully!"
-
-    # Find output OVA
-    $ovaFiles = Get-ChildItem -Path "output-ova" -Filter "*.ova" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
-
-    if ($ovaFiles) {
-        $latestOva = $ovaFiles[0]
-        $ovaSize = "{0:N2} GB" -f ($latestOva.Length / 1GB)
-        Write-Info ""
-        Write-Info "OVA File: $($latestOva.Name)"
-        Write-Info "Size: $ovaSize"
-        Write-Info "Location: $(Resolve-Path $latestOva.FullName)"
-        Write-Info ""
-        Write-Info "Next Steps:"
-        Write-Info "  1. Read OVA-UPLOAD-GUIDE.md for detailed upload instructions"
-        Write-Info "  2. Upload via vSphere UI or ovftool command-line"
-        Write-Info "  3. Deploy test VMs from the template"
-    }
+    Write-Info "╔════════════════════════════════════════════════════════════╗"
+    Write-Info "║ ✓ Build completed successfully!                           ║"
+    Write-Info "║                                                            ║"
+    Write-Info "║ Template is now available in your vSphere content library  ║"
+    Write-Info "║                                                            ║"
+    Write-Info "║ Next steps:                                                ║"
+    Write-Info "║  1. Check vSphere UI → Content Libraries                   ║"
+    Write-Info "║  2. Right-click template → New VM from This Template       ║"
+    Write-Info "║  3. Deploy and test                                        ║"
+    Write-Info "╚════════════════════════════════════════════════════════════╝"
 } else {
-    Write-Err "Build failed. Check output above for details."
+    Write-Err "Build failed. Check the output above for error details."
 }

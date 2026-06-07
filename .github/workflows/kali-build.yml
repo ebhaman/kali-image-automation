@@ -45,7 +45,7 @@ jobs:
             -var "kali_iso_sha256=abc123" \
             -var "build_ssh_pass=pass" \
             -var-file=variables/basic.pkrvars.hcl \
-            variables.pkr.hcl kali-basic.pkr.hcl
+            kali-basic.pkr.hcl
 
       - name: Validate custom HCL
         run: |
@@ -62,7 +62,7 @@ jobs:
             -var "kali_iso_sha256=abc123" \
             -var "build_ssh_pass=pass" \
             -var-file=variables/custom.pkrvars.hcl \
-            variables.pkr.hcl kali-custom.pkr.hcl
+            kali-custom.pkr.hcl
 
   # ── Job 2: verify ISO ────────────────────────────────────────────────────────
   verify-iso:

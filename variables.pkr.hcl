@@ -1,5 +1,4 @@
 # ── vSphere connection ────────────────────────────────────────────────────────
-# ── vSphere connection ────────────────────────────────────────────────────────
 variable "vcenter_host" {
   description = "vCenter server FQDN or IP"
   type        = string
@@ -83,29 +82,3 @@ variable "disk_gb" {
   type        = number
   default     = 40
 }
-
-# ── VM sizing (overridden per variant in pkrvars files) ───────────────────────
-variable "vm_name_prefix" {
-  description = "Prefix for the template name — week number is appended"
-  type        = string
-  default     = "kali-basic"
-}
-
-variable "cpu_count" {
-  description = "Number of vCPUs"
-  type        = number
-  default     = 2
-}
-
-variable "ram_mb" {
-  description = "RAM in megabytes"
-  type        = number
-  default     = 4096
-}
-
-variable "disk_gb" {
-  description = "Primary disk size in gigabytes"
-  type        = number
-  default     = 40
-}
-

@@ -33,14 +33,36 @@ jobs:
       - name: Validate basic HCL
         run: |
           packer validate \
+            -var "vcenter_host=localhost" \
+            -var "vcenter_user=user" \
+            -var "vcenter_pass=pass" \
+            -var "datacenter=dc" \
+            -var "cluster=cluster" \
+            -var "datastore=datastore" \
+            -var "build_network=network" \
+            -var "content_library=library" \
+            -var "kali_iso_url=file:///tmp/kali.iso" \
+            -var "kali_iso_sha256=abc123" \
+            -var "build_ssh_pass=pass" \
             -var-file=variables/basic.pkrvars.hcl \
-            .
+            variables.pkr.hcl kali-basic.pkr.hcl
 
       - name: Validate custom HCL
         run: |
           packer validate \
+            -var "vcenter_host=localhost" \
+            -var "vcenter_user=user" \
+            -var "vcenter_pass=pass" \
+            -var "datacenter=dc" \
+            -var "cluster=cluster" \
+            -var "datastore=datastore" \
+            -var "build_network=network" \
+            -var "content_library=library" \
+            -var "kali_iso_url=file:///tmp/kali.iso" \
+            -var "kali_iso_sha256=abc123" \
+            -var "build_ssh_pass=pass" \
             -var-file=variables/custom.pkrvars.hcl \
-            .
+            variables.pkr.hcl kali-custom.pkr.hcl
 
   # ── Job 2: verify ISO ────────────────────────────────────────────────────────
   verify-iso:

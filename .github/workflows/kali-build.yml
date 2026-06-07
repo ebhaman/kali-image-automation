@@ -34,13 +34,13 @@ jobs:
         run: |
           packer validate \
             -var-file=variables/basic.pkrvars.hcl \
-            kali-basic.pkr.hcl
+            .
 
       - name: Validate custom HCL
         run: |
           packer validate \
             -var-file=variables/custom.pkrvars.hcl \
-            kali-custom.pkr.hcl
+            .
 
   # ── Job 2: verify ISO ────────────────────────────────────────────────────────
   verify-iso:
